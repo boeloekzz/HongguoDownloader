@@ -1,5 +1,7 @@
 using HongguoStarter.Models;
 using HongguoStarter.Services;
+using System.Diagnostics;
+using System.Text;
 
 namespace HongguoStarter;
 
@@ -16,7 +18,7 @@ public sealed class MainForm : Form
 
     public MainForm()
     {
-        Text = "Hongguo Downloader — C# Starter";
+        Text = "Hongguo Drama Catalog — v0.2";
         Width = 1050; Height = 720; MinimumSize = new Size(850, 600);
         StartPosition = FormStartPosition.CenterScreen;
         _tasks = _history.Load();
@@ -34,16 +36,20 @@ public sealed class MainForm : Form
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 42));
         Controls.Add(root);
 
-        var header = new Label { Text = "HONGGUO DOWNLOADER  |  C# STARTER", Dock = DockStyle.Fill, Font = new Font("Segoe UI", 16, FontStyle.Bold), TextAlign = ContentAlignment.MiddleLeft };
+        var header = new Label { Text = "HONGGUO DRAMA CATALOG  |  VERSI 0.2", Dock = DockStyle.Fill, Font = new Font("Segoe UI", 16, FontStyle.Bold), TextAlign = ContentAlignment.MiddleLeft };
         root.Controls.Add(header, 0, 0);
 
-        var search = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2 };
+        var search = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3 };
         search.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        search.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160));
+        search.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140));
+        search.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140));
         search.Controls.Add(_url, 0, 0);
-        var analyze = new Button { Text = "Analisis Drama (Demo)", Dock = DockStyle.Fill };
+        var analyze = new Button { Text = "Muat Katalog", Dock = DockStyle.Fill };
         analyze.Click += (_, _) => Analyze();
         search.Controls.Add(analyze, 1, 0);
+        var openPage = new Button { Text = "Buka Halaman", Dock = DockStyle.Fill };
+        openPage.Click += (_, _) => OpenDramaPage();
+        search.Controls.Add(openPage, 2, 0);
         root.Controls.Add(search, 0, 1);
 
         var details = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown };
@@ -62,7 +68,8 @@ public sealed class MainForm : Form
         var all = new Button { Text = "Pilih Semua" }; all.Click += (_, _) => SetAll(true);
         var none = new Button { Text = "Hapus Pilihan" }; none.Click += (_, _) => SetAll(false);
         var add = new Button { Text = "Masukkan ke Antrean" }; add.Click += (_, _) => AddToQueue();
-        actions.Controls.AddRange([all, none, add]);
+        var export = new Button { Text = "Ekspor CSV" }; export.Click += (_, _) => ExportCsv();
+        actions.Controls.AddRange([all, none, add, export]);
         bottom.Controls.Add(actions, 0, 0);
         var queueGroup = new GroupBox { Text = "Antrean / Riwayat Lokal", Dock = DockStyle.Fill, Padding = new Padding(8) };
         queueGroup.Controls.Add(_queue);
@@ -88,7 +95,7 @@ public sealed class MainForm : Form
         }
         _current = new DemoDramaProvider().LoadDemo(_url.Text);
         _title.Text = _current.Title;
-        _info.Text = $"ID: {_current.Id} | {_current.EpisodeCount} episode | MODE DEMO — belum terhubung ke server";
+        _info.Text = $"ID: {_current.Id} | {_current.EpisodeCount} episode | KATALOG LOKAL — metadata dari screenshot; tidak mengambil video";
         _episodes.Rows.Clear();
         foreach (var ep in _current.Episodes)
         {
@@ -104,7 +111,7 @@ public sealed class MainForm : Form
 
     private void AddToQueue()
     {
-        if (_current is null) { MessageBox.Show("Analisis drama demo terlebih dahulu."); return; }
+        if (_current is null) { MessageBox.Show("Muat katalog terlebih dahulu."); return; }
         var selected = _episodes.Rows.Cast<DataGridViewRow>()
             .Where(r => Convert.ToBoolean(r.Cells["Selected"].Value ?? false))
             .Select(r => (DramaEpisode)r.Tag!)
@@ -117,7 +124,30 @@ public sealed class MainForm : Form
         });
         _history.Save(_tasks);
         RefreshQueue();
-        MessageBox.Show($"{selected.Count} episode dimasukkan ke antrean lokal. Ini belum mengunduh video.");
+        MessageBox.Show($"{selected.Count} episode dimasukkan ke antrean lokal. Antrean ini hanya mengelola daftar episode, belum mengunduh video.");
+    }
+
+    private void OpenDramaPage()
+    {
+        var input = _url.Text.Trim();
+        if (string.IsNullOrWhiteSpace(input)) { MessageBox.Show("Masukkan URL halaman drama terlebih dahulu."); return; }
+        var url = input.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+            ? input
+            : $"https://hongguoduanju.com/detail?series_id={Uri.EscapeDataString(input)}";
+        try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); }
+        catch (Exception ex) { MessageBox.Show("Tidak dapat membuka browser: " + ex.Message); }
+    }
+
+    private void ExportCsv()
+    {
+        if (_current is null) { MessageBox.Show("Muat katalog terlebih dahulu."); return; }
+        using var dialog = new SaveFileDialog { Filter = "CSV (*.csv)|*.csv", FileName = "daftar_episode.csv" };
+        if (dialog.ShowDialog() != DialogResult.OK) return;
+        static string Q(string value) => "\"" + value.Replace("\"", "\"\"") + "\"";
+        var lines = new List<string> { "DramaId,JudulDrama,Episode,JudulEpisode" };
+        lines.AddRange(_current.Episodes.Select(e => string.Join(",", Q(_current.Id), Q(_current.Title), e.Index, Q(e.Title))));
+        File.WriteAllText(dialog.FileName, "\uFEFF" + string.Join(Environment.NewLine, lines), Encoding.UTF8);
+        MessageBox.Show("Daftar episode berhasil diekspor ke CSV.");
     }
 
     private void RefreshQueue()
